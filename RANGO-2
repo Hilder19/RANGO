@@ -1,0 +1,52 @@
+import MetaTrader5 as mt5
+import numpy as np
+import time
+
+def monitorear_rango(symbol="EURUSD", timeframe=mt5.TIMEFRAME_M1, num_prices=20, update_interval=0.5):
+    """Inicializa MT5, obtiene el rango de precios y lo monitorea en tiempo real con actualización cada 0.5s."""
+
+    # Conectar a MT5
+    if not mt5.initialize():
+        print("Error al conectar a MT5")
+        return None
+    
+    if not mt5.symbol_select(symbol, True):
+        print(f"⚠️ No se pudo seleccionar el símbolo {symbol}")
+        mt5.shutdown()
+        return None
+
+    print(f"📡 Monitoreando el rango de {symbol} en tiempo real...")
+
+    try:
+        while True:
+            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_prices)
+            if rates is None or len(rates) < num_prices:
+                print("⚠️ Error al obtener datos")
+                time.sleep(update_interval)
+                continue
+
+            close_prices = np.array([rate['close'] for rate in rates])
+            top_10_high = np.partition(close_prices, -10)[-10:]
+            top_10_low = np.partition(close_prices, 10)[:10]
+            max_price = np.max(top_10_high)
+            min_price = np.min(top_10_low)
+            price_range = max_price - min_price
+
+            print(f"📈 Máximo: {max_price:.5f} | 📉 Mínimo: {min_price:.5f} | 📊 Rango: {price_range:.5f}")
+
+            time.sleep(update_interval)  # Espera 0.5 segundos antes de actualizar nuevamente
+
+            # Retorna el valor para poder usarlo en otra función
+            return max_price, min_price, price_range  
+
+    except KeyboardInterrupt:
+        print("\n⏹️ Monitoreo detenido por el usuario.")
+    finally:
+        mt5.shutdown()
+        print("🔌 Desconectado de MT5.")
+
+# Ejemplo de cómo usar el return en otra función
+resultado = monitorear_rango("EURUSD", mt5.TIMEFRAME_M1, 20, 0.5)
+if resultado:
+    max_price, min_price, price_range = resultado
+    print(f"🔹 Resultado recibido en otra función: Máximo={max_price}, Mínimo={min_price}, Rango={price_range}")
