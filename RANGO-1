@@ -1,0 +1,48 @@
+import MetaTrader5 as mt5
+import numpy as np
+import time
+
+# Conectar a MT5
+if not mt5.initialize():
+    print("Error al conectar a MT5")
+    quit()
+
+# Parámetros
+symbol = "EURUSD"  # Cambia por el activo que usas
+timeframe = mt5.TIMEFRAME_M1  # Marco temporal
+num_prices = 20  # Últimos 20 precios
+update_interval = 2  # Segundos entre actualizaciones
+
+print(f"📡 Monitoreando el rango de {symbol} en tiempo real...")
+
+try:
+    while True:
+        # Obtener los últimos 20 precios de cierre
+        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_prices)
+        if rates is None:
+            print("⚠️ Error al obtener datos")
+            continue
+
+        # Extraer los precios de cierre
+        close_prices = np.array([rate['close'] for rate in rates])
+
+        # Obtener los 10 precios más altos y más bajos
+        top_10_high = np.sort(close_prices)[-10:]  # 10 más altos
+        top_10_low = np.sort(close_prices)[:10]    # 10 más bajos
+
+        # Cálculo del rango
+        max_price = max(top_10_high)
+        min_price = min(top_10_low)
+        price_range = max_price - min_price
+
+        # Mostrar resultados en tiempo real
+        print(f"📈 Máximo: {max_price:.5f} | 📉 Mínimo: {min_price:.5f} | 📊 Rango: {price_range:.5f}")
+
+        # Esperar antes de la próxima actualización
+        time.sleep(update_interval)
+
+except KeyboardInterrupt:
+    print("\n⏹️ Monitoreo detenido por el usuario.")
+
+# Desconectar MT5 al salir
+mt5.shutdown()
