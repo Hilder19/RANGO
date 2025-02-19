@@ -1,0 +1,142 @@
+import MetaTrader5 as mt5
+import numpy as np
+import time
+import logging
+
+def monitorear_rango(symbol="EURUSD", timeframe=mt5.TIMEFRAME_M1, num_prices=20, update_interval=0.5):
+    """Inicializa MT5, obtiene el rango de precios y lo monitorea en tiempo real con actualización cada 0.5s."""
+
+    # Conectar a MT5
+    if not mt5.initialize():
+        print("Error al conectar a MT5")
+        return None
+    
+    if not mt5.symbol_select(symbol, True):
+        print(f"⚠️ No se pudo seleccionar el símbolo {symbol}")
+        mt5.shutdown()
+        return None
+
+    print(f"📡 Monitoreando el rango de {symbol} en tiempo real...")
+
+    try:
+        while True:
+            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_prices)
+            if rates is None or len(rates) < num_prices:
+                print("⚠️ Error al obtener datos")
+                time.sleep(update_interval)
+                continue
+
+            close_prices = np.array([rate['close'] for rate in rates])
+            top_10_high = np.partition(close_prices, -10)[-10:]
+            top_10_low = np.partition(close_prices, 10)[:10]
+            max_price = np.max(top_10_high)
+            min_price = np.min(top_10_low)
+            
+            # Cálculos estadísticos avanzados
+            p90 = np.percentile(close_prices, 90)
+            p10 = np.percentile(close_prices, 10)
+            mean_price = np.mean(close_prices)
+            std_dev = np.std(close_prices)
+            cv = std_dev / mean_price if mean_price != 0 else 0
+            price_range = p90 - p10
+            
+            # Determinar los precios arriba y abajo con incrementos/decrementos de 0.00001
+            step = 0.00001  # Distancia de 0.00001 para más precisión
+            above_prices = np.arange(p90 + step, p90 + (step * 10), step)
+            below_prices = np.arange(p10 - step, p10 - (step * 10), -step)
+            
+            # Obtener precios dentro del rango calculado con distancia de centavos (0.01)
+            within_range_prices = np.arange(p10, p90, 0.01)
+
+            return {
+                "max_price": max_price,
+                "min_price": min_price,
+                "percentile_90": p90,
+                "percentile_10": p10,
+                "mean": mean_price,
+                "std_dev": std_dev,
+                "cv": cv,
+                "price_range": price_range,
+                "above_prices": above_prices.tolist(),
+                "below_prices": below_prices.tolist(),
+                "within_range_prices": within_range_prices.tolist()
+            }
+    
+    except KeyboardInterrupt:
+        print("\n⏹️ Monitoreo detenido por el usuario.")
+    finally:
+        mt5.shutdown()
+        print("🔌 Desconectado de MT5.")
+
+import logging
+import MetaTrader5 as mt5
+
+def execute_trade_multiple(symbols, capital_assigned, risk_per_trade=0.5):
+    """
+    Ejecuta órdenes Buy Limit y Sell Limit con el método Grillet X10 en múltiples niveles de precio.
+    """
+    results = []
+    for symbol in symbols:
+        try:
+            rango = monitorear_rango(symbol)
+            if not rango:
+                continue
+
+            above_prices = rango["above_prices"]
+            below_prices = rango["below_prices"]
+
+            symbol_info = mt5.symbol_info(symbol)
+            if not symbol_info:
+                continue
+
+            tick_info = mt5.symbol_info_tick(symbol)
+            if not tick_info:
+                continue
+
+            ask_price = tick_info.ask
+            bid_price = tick_info.bid
+
+            risk_amount = capital_assigned.get(symbol, 0) * (risk_per_trade / 100)
+            lot_size = (risk_amount / ask_price) * 10
+            lot_size = max(
+                symbol_info.volume_min,
+                min(round(lot_size / symbol_info.volume_step) * symbol_info.volume_step, symbol_info.volume_max)
+            )
+
+            orders = []
+            for i in range(10):
+                orders.append({
+                    "action": mt5.TRADE_ACTION_PENDING,
+                    "symbol": symbol,
+                    "volume": lot_size,
+                    "type": mt5.ORDER_TYPE_BUY_LIMIT,
+                    "price": above_prices[i],
+                    "tp": above_prices[i] + 0.0001,  # TP fijo a 0.0001
+                    "deviation": 2,
+                    "magic": 123456,
+                    "comment": f"Grillet Buy Limit {i+1}",
+                })
+                orders.append({
+                    "action": mt5.TRADE_ACTION_PENDING,
+                    "symbol": symbol,
+                    "volume": lot_size,
+                    "type": mt5.ORDER_TYPE_SELL_LIMIT,
+                    "price": below_prices[i],
+                    "tp": below_prices[i] - 0.0001,  # TP fijo a 0.0001
+                    "deviation": 2,
+                    "magic": 123456,
+                    "comment": f"Grillet Sell Limit {i+1}",
+                })
+            
+            for order in orders:
+                result = mt5.order_send(order)
+                if result.retcode == mt5.TRADE_RETCODE_DONE:
+                    logging.info(f"Orden enviada: {symbol}, Tipo: {order['type']}, Precio: {order['price']}, TP: {order['tp']}, Volumen: {lot_size}")
+                    results.append(result)
+                else:
+                    logging.error(f"Error al enviar orden en {symbol}: {result.comment}")
+        
+        except Exception as e:
+            logging.error(f"Error procesando el símbolo {symbol}: {e}")
+    
+    return results
