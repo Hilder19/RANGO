@@ -71,6 +71,9 @@ def monitorear_rango(symbol="EURUSD", timeframe=mt5.TIMEFRAME_M1, num_prices=20,
 import logging
 import MetaTrader5 as mt5
 
+import logging
+import MetaTrader5 as mt5
+
 def execute_trade_multiple(symbols, capital_assigned, risk_per_trade=0.5):
     """
     Ejecuta órdenes Buy Limit y Sell Limit con el método Grillet X10 en múltiples niveles de precio.
@@ -80,17 +83,24 @@ def execute_trade_multiple(symbols, capital_assigned, risk_per_trade=0.5):
         try:
             rango = monitorear_rango(symbol)
             if not rango:
+                logging.error(f"No se pudo obtener el rango para {symbol}")
                 continue
 
             above_prices = rango["above_prices"]
             below_prices = rango["below_prices"]
 
+            if len(above_prices) < 10 or len(below_prices) < 10:
+                logging.error(f"{symbol} no tiene suficientes precios en above_prices ({len(above_prices)}) o below_prices ({len(below_prices)})")
+                continue
+
             symbol_info = mt5.symbol_info(symbol)
             if not symbol_info:
+                logging.error(f"No se pudo obtener información del símbolo {symbol}")
                 continue
 
             tick_info = mt5.symbol_info_tick(symbol)
             if not tick_info:
+                logging.error(f"No se pudo obtener tick info para {symbol}")
                 continue
 
             ask_price = tick_info.ask
@@ -102,6 +112,8 @@ def execute_trade_multiple(symbols, capital_assigned, risk_per_trade=0.5):
                 symbol_info.volume_min,
                 min(round(lot_size / symbol_info.volume_step) * symbol_info.volume_step, symbol_info.volume_max)
             )
+
+            logging.info(f"{symbol} - Lot Size Calculado: {lot_size}, Min: {symbol_info.volume_min}, Max: {symbol_info.volume_max}")
 
             orders = []
             for i in range(10):
@@ -127,15 +139,16 @@ def execute_trade_multiple(symbols, capital_assigned, risk_per_trade=0.5):
                     "magic": 123456,
                     "comment": f"Grillet Sell Limit {i+1}",
                 })
-            
+
             for order in orders:
+                logging.info(f"Enviando orden: {order}")
                 result = mt5.order_send(order)
                 if result.retcode == mt5.TRADE_RETCODE_DONE:
                     logging.info(f"Orden enviada: {symbol}, Tipo: {order['type']}, Precio: {order['price']}, TP: {order['tp']}, Volumen: {lot_size}")
                     results.append(result)
                 else:
-                    logging.error(f"Error al enviar orden en {symbol}: {result.comment}")
-        
+                    logging.error(f"Error al enviar orden en {symbol}: {result.comment} (Código: {result.retcode})")
+
         except Exception as e:
             logging.error(f"Error procesando el símbolo {symbol}: {e}")
     
