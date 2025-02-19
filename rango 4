@@ -1,0 +1,82 @@
+import MetaTrader5 as mt5
+import numpy as np
+import time
+
+def monitorear_rango(symbol="EURUSD", timeframe=mt5.TIMEFRAME_M1, num_prices=20, update_interval=0.5):
+    """Inicializa MT5, obtiene el rango de precios y lo monitorea en tiempo real con actualización cada 0.5s."""
+
+    # Conectar a MT5
+    if not mt5.initialize():
+        print("Error al conectar a MT5")
+        return None
+    
+    if not mt5.symbol_select(symbol, True):
+        print(f"⚠️ No se pudo seleccionar el símbolo {symbol}")
+        mt5.shutdown()
+        return None
+
+    print(f"📡 Monitoreando el rango de {symbol} en tiempo real...")
+
+    try:
+        while True:
+            rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, num_prices)
+            if rates is None or len(rates) < num_prices:
+                print("⚠️ Error al obtener datos")
+                time.sleep(update_interval)
+                continue
+
+            close_prices = np.array([rate['close'] for rate in rates])
+            top_10_high = np.partition(close_prices, -10)[-10:]
+            top_10_low = np.partition(close_prices, 10)[:10]
+            max_price = np.max(top_10_high)
+            min_price = np.min(top_10_low)
+            
+            # Cálculos estadísticos avanzados
+            p90 = np.percentile(close_prices, 90)
+            p10 = np.percentile(close_prices, 10)
+            mean_price = np.mean(close_prices)
+            std_dev = np.std(close_prices)
+            cv = std_dev / mean_price if mean_price != 0 else 0
+            price_range = p90 - p10
+            
+            # Determinar los precios arriba y abajo con incrementos/decrementos de 0.00001
+            step = 0.00001  # Distancia de 0.00001 para más precisión
+            above_prices = np.arange(current_price + step, current_price + (step * 10), step)
+            below_prices = np.arange(current_price - step, current_price - (step * 10), -step)
+            
+            # Obtener precios dentro del rango calculado con distancia de centavos (0.01)
+            within_range_prices = np.arange(p10, p90, 0.01)
+
+            print(f"📈 Máximo: {max_price:.5f} | 📉 Mínimo: {min_price:.5f} | 📊 Rango: {price_range:.5f}")
+            print(f"📊 Percentil 90: {p90:.5f} | 📊 Percentil 10: {p10:.5f} | 📊 Media: {mean_price:.5f} | 📊 Desviación Std: {std_dev:.5f} | 📊 CV: {cv:.5f}")
+            print(f"🔺 Precios arriba: {above_prices}")
+            print(f"🔻 Precios abajo: {below_prices}")
+            print(f"📌 Precios dentro del rango (distancia de centavos): {within_range_prices}")
+
+            time.sleep(update_interval)  # Espera 0.5 segundos antes de actualizar nuevamente
+
+            # Retorna el valor para poder usarlo en otra función
+            return {
+                "max_price": max_price,
+                "min_price": min_price,
+                "percentile_90": p90,
+                "percentile_10": p10,
+                "mean": mean_price,
+                "std_dev": std_dev,
+                "cv": cv,
+                "price_range": price_range,
+                "above_prices": above_prices.tolist(),
+                "below_prices": below_prices.tolist(),
+                "within_range_prices": within_range_prices.tolist()
+            }
+    
+    except KeyboardInterrupt:
+        print("\n⏹️ Monitoreo detenido por el usuario.")
+    finally:
+        mt5.shutdown()
+        print("🔌 Desconectado de MT5.")
+
+# Ejemplo de cómo usar el return en otra función
+resultado = monitorear_rango("EURUSD", mt5.TIMEFRAME_M1, 20, 0.5)
+if resultado:
+    print(f"🔹 Resultado recibido en otra función: {resultado}")
